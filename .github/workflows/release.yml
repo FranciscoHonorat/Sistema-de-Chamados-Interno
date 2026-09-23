@@ -1,0 +1,190 @@
+# Continuous delivery, called by CI once every check passed on main or on a
+# version tag:
+#
+#   main    -> image ghcr.io/<owner>/sys-called:{edge,sha-<sha>}  -> staging
+#   v1.2.3  -> image ghcr.io/<owner>/sys-called:{1.2.3,1.2,latest}, Helm chart
+#              oci://ghcr.io/<owner>/charts/sys-called:1.2.3, GitHub release
+#              -> production (after the approval configured on the environment)
+#
+# Deploys need, per GitHub environment (staging, production): the secret
+# KUBECONFIG (base64 of a kubeconfig allowed to deploy in the namespace) and
+# the variables APP_URL (public URL) and, optionally, KUBE_NAMESPACE. Set the
+# repository variable DEPLOY_ENABLED=true once they exist; until then the
+# pipeline publishes the artifacts and skips the deploys.
+name: Release
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.build.outputs.digest }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-edge.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sys-called" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push (amd64 + arm64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=sys-called
+          cache-to: type=gha,mode=max,scope=sys-called
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign the image (keyless)
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE"
+
+      - name: Summary
+        env:
+          REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "### Image"
+            echo "\`$REF\`"
+            echo
+            while read -r tag; do echo "- \`$tag\`"; done <<< "$TAGS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  chart:
+    name: Publish Helm chart
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+
+      - name: Package with the release version and push to GHCR
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package infra/helm/sys-called --version "$VERSION" --app-version "$VERSION" -d dist
+          helm push "dist/sys-called-$VERSION.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts"
+
+  github-release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [publish, chart]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create the release with generated notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          cat > notes.md <<NOTES
+          **Imagem:** \`$IMAGE:$VERSION\` (\`$DIGEST\`, assinada com cosign, amd64 + arm64)
+
+          **Chart:** \`helm install sys-called oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts/sys-called --version $VERSION\`
+
+          Verificar a assinatura:
+          \`\`\`
+          cosign verify $IMAGE@$DIGEST \\
+            --certificate-identity-regexp 'https://github.com/${GITHUB_REPOSITORY}/.*' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          \`\`\`
+          NOTES
+          gh release create "$GITHUB_REF_NAME" --generate-notes --notes-file notes.md --verify-tag
+
+  deploy-staging:
+    name: Deploy · staging
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    needs: publish
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      image: ${{ needs.publish.outputs.image }}
+      digest: ${{ needs.publish.outputs.digest }}
+      values: values-staging.yaml
+      smoke-readonly: false
+    secrets: inherit
+
+  deploy-production:
+    name: Deploy · production
+    if: startsWith(github.ref, 'refs/tags/v') && vars.DEPLOY_ENABLED == 'true'
+    needs: [publish, github-release]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      image: ${{ needs.publish.outputs.image }}
+      digest: ${{ needs.publish.outputs.digest }}
+      values: values-production.yaml
+      smoke-readonly: true
+    secrets: inherit

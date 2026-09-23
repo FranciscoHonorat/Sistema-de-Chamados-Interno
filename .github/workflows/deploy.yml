@@ -1,0 +1,102 @@
+# Deploys a published image to one environment with Helm, verifies it and rolls
+# back automatically when the rollout or the smoke test fails.
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      image:
+        type: string
+        required: true
+      digest:
+        description: Deploying by digest guarantees the exact image CI tested and signed.
+        type: string
+        required: true
+      values:
+        description: Values file in infra/helm/sys-called for this environment.
+        type: string
+        required: true
+      smoke-readonly:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.APP_URL }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      RELEASE: sys-called
+      NAMESPACE: ${{ vars.KUBE_NAMESPACE || format('sys-called-{0}', inputs.environment) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/setup-helm@v4
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Verify the image signature before deploying it
+        run: |
+          cosign verify "${{ inputs.image }}@${{ inputs.digest }}" \
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.*" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+
+      - name: Kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+        run: |
+          test -n "$KUBECONFIG_B64" || { echo "::error::secret KUBECONFIG is not set on the ${{ inputs.environment }} environment"; exit 1; }
+          mkdir -p ~/.kube
+          echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: helm upgrade (atomic)
+        id: upgrade
+        run: |
+          helm upgrade --install "$RELEASE" infra/helm/sys-called \
+            --namespace "$NAMESPACE" --create-namespace \
+            --values "infra/helm/sys-called/${{ inputs.values }}" \
+            --set image.repository="${{ inputs.image }}" \
+            --set image.digest="${{ inputs.digest }}" \
+            --atomic --wait --timeout 10m \
+            --description "deploy ${GITHUB_SHA::7} by ${GITHUB_ACTOR}"
+
+      - name: helm test
+        run: helm test "$RELEASE" --namespace "$NAMESPACE" --logs
+
+      - name: Smoke test through the public URL
+        if: vars.APP_URL != ''
+        env:
+          SMOKE_READONLY: ${{ inputs.smoke-readonly && '1' || '0' }}
+          SMOKE_USERNAME: ${{ secrets.SMOKE_USERNAME }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: ./scripts/smoke-test.sh "${{ vars.APP_URL }}"
+
+      # --atomic already undoes a rollout that fails; this undoes one that
+      # rolled out but then failed its tests.
+      - name: Roll back to the previous release
+        if: failure() && steps.upgrade.outcome == 'success'
+        run: helm rollback "$RELEASE" -n "$NAMESPACE" --wait --timeout 10m
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ inputs.environment }}"
+            echo "- image: \`${{ inputs.image }}@${{ inputs.digest }}\`"
+            echo "- namespace: \`$NAMESPACE\`"
+            echo "- url: ${{ vars.APP_URL }}"
+            echo
+            helm history "$RELEASE" -n "$NAMESPACE" --max 5 2>/dev/null | sed 's/^/    /' || true
+          } >> "$GITHUB_STEP_SUMMARY"
