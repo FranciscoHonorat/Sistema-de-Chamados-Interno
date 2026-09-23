@@ -53,6 +53,100 @@ O container do app roda sem root, com sistema de arquivos só leitura, sem capab
 
 > Vindo de uma versão anterior (com `ticket-service`, `employees-service` e Kafka)? Rode `docker compose down -v --remove-orphans` antes: o banco agora é um só, com um schema por módulo.
 
+### Deploy em AWS EC2
+
+A aplicação também foi publicada em uma instância **Amazon EC2 Free Tier**, usando Ubuntu e Docker Compose. O deploy mantém a mesma arquitetura da stack local: um container para o monólito e um container para o PostgreSQL, com o Nginx na máquina EC2 fazendo o reverse proxy.
+
+```text
+Internet
+   │
+   │ HTTP :80
+   ▼
+ Nginx (EC2)
+   │
+   │ 127.0.0.1:8000
+   ▼
+ Docker Compose
+   ├── app        → API Go + frontend Vue
+   └── postgres   → PostgreSQL 16
+```
+
+Passos principais realizados na instância:
+
+```bash
+git clone https://github.com/FranciscoHonorat/Sistema-de-Chamados-Interno.git
+cd Sistema-de-Chamados-Interno
+
+make env
+docker compose build
+docker compose up -d
+docker compose ps
+```
+
+Para manter a aplicação acessível somente através do Nginx, a porta do container foi vinculada ao loopback da EC2:
+
+```yaml
+ports:
+  - "127.0.0.1:${APP_PORT:-8000}:8080"
+```
+
+O PostgreSQL também permanece restrito ao loopback:
+
+```text
+127.0.0.1:5433 → 5432
+```
+
+O Nginx recebe as requisições públicas na porta `80` e encaminha para `127.0.0.1:8000`:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+A configuração foi validada com:
+
+```bash
+sudo nginx -t
+sudo systemctl restart nginx
+sudo systemctl enable nginx
+
+curl -I http://localhost
+curl -I http://<IP-PUBLICO>
+```
+
+O retorno esperado é `HTTP/1.1 200 OK`.
+
+No Security Group da EC2 foram liberadas as portas `80` (HTTP) e `443` (HTTPS). A porta `8000` não precisa ser liberada externamente, pois a aplicação fica disponível somente em `127.0.0.1:8000`.
+
+A instância utilizada durante a documentação ficou acessível pelo endereço público:
+
+```text
+http://3.148.209.194
+```
+
+> O endereço IPv4 público de uma EC2 pode mudar quando a instância é parada e iniciada novamente. Para um endereço permanente, utilize um Elastic IP.
+
+O ambiente também teve o **K3s** instalado para avaliar uma implantação Kubernetes com Helm. Como a aplicação foi mantida em Docker Compose nesta implantação, o serviço do K3s foi posteriormente desabilitado para evitar consumo desnecessário de memória na instância Free Tier:
+
+```bash
+sudo systemctl disable k3s
+sudo systemctl stop k3s
+```
+
 #### Problemas comuns
 
 | Sintoma | Causa e solução |
@@ -213,6 +307,23 @@ O que mudou na interface:
 - Página 404, título da aba por página, favicon e metadados.
 
 ## Infraestrutura
+
+### AWS EC2
+
+A implantação de demonstração foi feita em uma única instância Amazon EC2 Free Tier com Ubuntu. O acesso público passa pelo Nginx na porta `80`, enquanto a aplicação e o PostgreSQL ficam restritos ao próprio host.
+
+```text
+EC2
+├── Nginx :80
+│    └── proxy → 127.0.0.1:8000
+│
+└── Docker Compose
+     ├── app :8080
+     └── postgres :5432
+          └── volume postgres_data
+```
+
+Essa configuração é adequada para demonstração, avaliação acadêmica e portfólio, mas não representa uma arquitetura de alta disponibilidade. O PostgreSQL utilizado na EC2 fica associado ao armazenamento da própria instância e não possui, nesta implantação, backup externo ou failover automático.
 
 ### Imagem
 
