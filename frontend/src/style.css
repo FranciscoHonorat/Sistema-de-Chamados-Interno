@@ -1,0 +1,135 @@
+@import 'tailwindcss';
+
+/* Dark mode follows the .dark class on <html>, set by public/theme-init.js
+   before the first paint and by the theme toggle afterwards. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Green brand; 600 is the button fill (5:1 against white text). */
+  --color-brand-50: #effbf3;
+  --color-brand-100: #d8f5e1;
+  --color-brand-200: #b3e9c6;
+  --color-brand-300: #7fd6a2;
+  --color-brand-400: #45bb78;
+  --color-brand-500: #22a05a;
+  --color-brand-600: #15803d;
+  --color-brand-700: #166534;
+  --color-brand-800: #14532d;
+  --color-brand-900: #0f3f22;
+
+  /* Semantic surfaces and text: the dark theme below only swaps these. */
+  --color-canvas: #f4f6fb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-sunken: #eef2f7;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-ink: #0f172a;
+  --color-ink-muted: #475569;
+  --color-ink-subtle: #64748b;
+
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-overlay: 0 20px 45px -12px rgb(15 23 42 / 0.35);
+
+  --animate-fade-in: fade-in 150ms ease-out;
+  --animate-slide-up: slide-up 200ms ease-out;
+  --animate-slide-in-left: slide-in-left 200ms ease-out;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(0.75rem); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-in-left {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+}
+
+:root.dark {
+  --color-canvas: #0b1120;
+  --color-surface: #111827;
+  --color-surface-muted: #151e2f;
+  --color-surface-sunken: #0d1526;
+  --color-line: #1f2a3d;
+  --color-line-strong: #334155;
+  --color-ink: #e5e9f0;
+  --color-ink-muted: #a3aec2;
+  --color-ink-subtle: #8391a7;
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+
+  .field-input {
+    @apply block w-full rounded-lg border border-line-strong bg-surface px-3 py-2.5 text-sm text-ink shadow-sm
+      placeholder:text-ink-subtle transition-colors
+      focus:border-brand-500 focus:outline-none focus:ring-3 focus:ring-brand-500/20
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .field-input[aria-invalid='true'] {
+    @apply border-rose-500 focus:border-rose-500 focus:ring-rose-500/20;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+
+  /* Tables that become stacked cards on small screens: each cell shows its
+     column name from data-label (pseudo content, so screen readers and tests
+     still read only the value). */
+  .responsive-table {
+    @apply w-full text-left text-sm;
+  }
+  .responsive-table thead {
+    @apply hidden md:table-header-group;
+  }
+  .responsive-table th {
+    @apply px-4 py-3 text-xs font-semibold tracking-wide text-ink-subtle uppercase;
+  }
+  .responsive-table tbody tr {
+    @apply mb-3 block rounded-xl border border-line bg-surface p-4 shadow-card md:mb-0 md:table-row md:rounded-none
+      md:border-0 md:border-t md:bg-transparent md:p-0 md:shadow-none md:hover:bg-surface-muted;
+  }
+  .responsive-table tbody td {
+    @apply flex items-center justify-between gap-4 py-1.5 md:table-cell md:px-4 md:py-3;
+  }
+  .responsive-table tbody td[data-label]::before {
+    content: attr(data-label);
+    @apply text-xs font-medium text-ink-subtle md:hidden;
+  }
+}

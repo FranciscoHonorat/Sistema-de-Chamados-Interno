@@ -1,0 +1,30 @@
+package event
+
+import (
+	"github.com/franciscoHonorat/Sys-Called/backend/modules/tickets/internal/domain/response"
+	"github.com/franciscoHonorat/Sys-Called/backend/modules/tickets/internal/domain/valueobjects"
+)
+
+type TicketResponseAdded struct {
+	baseEvent
+	ResponseID string
+	AuthorID   string
+	Content    string
+}
+
+func NewTicketResponseAdded(id *valueobjects.ID, r *response.Response) TicketResponseAdded {
+	return TicketResponseAdded{
+		baseEvent:  baseEvent{aggregateID: id.GetID(), occurredAt: r.GetCreatedAt()},
+		ResponseID: r.GetID().String(),
+		AuthorID:   r.GetAuthorID().GetAuthorID(),
+		Content:    r.GetContent().GetContent(),
+	}
+}
+
+func (TicketResponseAdded) EventName() string {
+	return "TicketResponseAdded"
+}
+
+func init() {
+	registerEvent[TicketResponseAdded]()
+}

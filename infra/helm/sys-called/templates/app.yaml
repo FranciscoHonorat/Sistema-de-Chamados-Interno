@@ -1,0 +1,160 @@
+{{- $name := include "sys-called.name" . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "sys-called.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "sys-called.labels" . | nindent 4 }}
+    app.kubernetes.io/name: app
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "sys-called.selector" (dict "root" . "component" "app") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "sys-called.labels" . | nindent 4 }}
+    app.kubernetes.io/name: app
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.app.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "sys-called.selector" (dict "root" . "component" "app") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sys-called.labels" . | nindent 8 }}
+        app.kubernetes.io/name: app
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.app.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "sys-called.podSecurityContext" . | nindent 8 }}
+      initContainers:
+        # Applies every module's migrations before the new version serves.
+        # Concurrent pods are safe: the migrator holds a Postgres advisory lock.
+        - name: migrate
+          image: {{ include "sys-called.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            {{- include "sys-called.env" . | nindent 12 }}
+          securityContext:
+            {{- include "sys-called.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+      containers:
+        - name: app
+          image: {{ include "sys-called.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          env:
+            {{- include "sys-called.env" . | nindent 12 }}
+            - name: MIGRATE_ON_START
+              value: "false"
+            - name: SEED_DEMO_USERS
+              value: {{ .Values.app.seedDemoUsers | quote }}
+            - name: TICKETS_CACHE_ENABLED
+              value: {{ include "sys-called.ticketsCache" . | quote }}
+            - name: SHUTDOWN_TIMEOUT
+              value: {{ .Values.app.shutdownTimeout | quote }}
+            - name: JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sys-called.secretName" . }}
+                  key: jwt-private-key
+            {{- with .Values.app.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            # Gives the endpoints controller time to stop routing traffic here
+            # before the server starts draining.
+            preStop:
+              sleep:
+                seconds: 5
+          securityContext:
+            {{- include "sys-called.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "sys-called.selector" (dict "root" . "component" "app") | nindent 14 }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

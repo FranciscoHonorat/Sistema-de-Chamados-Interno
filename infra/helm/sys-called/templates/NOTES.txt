@@ -1,0 +1,20 @@
+Sys-Called {{ .Chart.AppVersion }} instalado no namespace {{ .Release.Namespace }} ({{ .Values.app.env }}).
+
+{{- if .Values.ingress.enabled }}
+Acesse: {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}
+{{- else if eq .Values.service.type "NodePort" }}
+Acesse pela porta {{ .Values.service.nodePort }} de qualquer nó (no kind do projeto: http://localhost:{{ .Values.service.nodePort }}).
+{{- else }}
+Acesse com: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "sys-called.name" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+{{- if .Values.app.seedDemoUsers }}
+
+Usuários de demonstração: admin, ana, bruno, carla e usuario (senha "senha123").
+{{- end }}
+{{- if and (eq (include "sys-called.multiReplica" .) "true") (eq (include "sys-called.ticketsCache" .) "true") }}
+
+ATENÇÃO: o cache de chamados está ligado com mais de uma réplica; leituras podem ficar desatualizadas.
+{{- end }}
+
+Estado: kubectl -n {{ .Release.Namespace }} get pods,svc,pvc
+Teste:  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

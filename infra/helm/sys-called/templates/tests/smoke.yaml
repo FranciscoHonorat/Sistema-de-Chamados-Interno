@@ -1,0 +1,28 @@
+# `helm test <release>`: checks the app answers through its Service.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "sys-called.name" . }}-smoke
+  labels:
+    {{- include "sys-called.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: readyz
+      image: {{ include "sys-called.image" . }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      args: ["healthcheck", "http://{{ include "sys-called.name" . }}:{{ .Values.service.port }}/readyz"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]

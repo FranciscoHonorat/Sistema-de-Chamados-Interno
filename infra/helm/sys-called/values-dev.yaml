@@ -1,0 +1,18 @@
+# Local kind cluster: demo users, text logs, one replica with the ticket cache
+# on, and the app exposed on NodePort 30080 (mapped to localhost by kind).
+image:
+  repository: sys-called
+  pullPolicy: Never
+
+app:
+  env: development
+  replicas: 1
+  seedDemoUsers: true
+
+service:
+  type: NodePort
+  nodePort: 30080
+
+networkPolicy:
+  # kind's default CNI does not enforce policies anyway.
+  enabled: false

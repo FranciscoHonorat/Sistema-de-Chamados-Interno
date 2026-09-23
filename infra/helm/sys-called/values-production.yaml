@@ -1,0 +1,40 @@
+# Production: autoscaled, behind TLS, with a managed Postgres whose URL comes
+# from a Secret you create (kubectl create secret generic sys-called-database
+# --from-literal=database-url='postgres://...?...sslmode=require').
+app:
+  env: production
+  seedDemoUsers: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  className: nginx
+  host: chamados.example.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+  tls:
+    enabled: true
+    secretName: sys-called-tls
+
+metrics:
+  serviceMonitor:
+    enabled: true
+
+postgresql:
+  enabled: false
+
+externalDatabase:
+  existingSecret: sys-called-database
+  urlKey: database-url

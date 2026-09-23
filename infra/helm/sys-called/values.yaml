@@ -1,0 +1,106 @@
+# Default values are production-minded: no demo users, JSON logs, a network
+# policy and hardened pods. infra/helm/sys-called/values-dev.yaml turns the
+# demo users back on for the local kind cluster.
+
+image:
+  repository: ghcr.io/franciscohonorat/sys-called
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # sha256:... — when set, deploys exactly this image whatever the tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+app:
+  # development | production. Production requires the JWT key (always present
+  # here: the chart generates one) and never seeds the demo users by itself.
+  env: production
+  replicas: 2
+  # Creates the demo users (password "senha123"). Never in a real environment.
+  seedDemoUsers: false
+  logLevel: info
+  # The per-replica ticket cache is only coherent with a single replica; the
+  # chart turns it off automatically when replicas > 1 or autoscaling is on.
+  ticketsCache: auto
+  dbMaxConns: 10
+  shutdownTimeout: 15s
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  extraEnv: []
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  # Applied only when more than one replica may run.
+  enabled: true
+  maxUnavailable: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  # Only used when type is NodePort.
+  nodePort: null
+
+ingress:
+  enabled: false
+  className: ""
+  host: chamados.example.com
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt
+  tls:
+    enabled: false
+    secretName: sys-called-tls
+
+metrics:
+  serviceMonitor:
+    # Requires the Prometheus Operator CRDs.
+    enabled: false
+    interval: 30s
+
+networkPolicy:
+  enabled: true
+
+secrets:
+  # Use a Secret you manage (Sealed Secrets, External Secrets...) with the keys
+  # jwt-private-key and, when postgresql.enabled, postgres-password.
+  existingSecret: ""
+  # Otherwise the chart creates one, generating what is left empty, and keeps
+  # it (and reuses it) across upgrades and uninstalls.
+  jwtPrivateKey: ""
+
+# In-cluster Postgres, fine for development and small installations.
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 16-alpine
+  database: sys_called
+  user: sys_called
+  password: ""
+  storage: 2Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# Used when postgresql.enabled is false (a managed database, for instance).
+externalDatabase:
+  # Secret holding the full connection URL (postgres://user:pass@host:5432/db?sslmode=require).
+  existingSecret: ""
+  urlKey: database-url

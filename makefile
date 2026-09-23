@@ -8,7 +8,7 @@ TEST_DATABASE_URL ?= postgres://sys_called:sys_called@localhost:55432/sys_called
 
 .DEFAULT_GOAL := help
 .PHONY: help setup dev dev-backend dev-frontend build image run test test-backend test-integration \
-	test-frontend lint lint-backend lint-frontend fmt tidy check env up down ps logs smoke \
+	test-frontend test-e2e lint lint-backend lint-frontend fmt tidy check env up down ps logs smoke \
 	db-test db-test-down k8s-up k8s-deploy k8s-test k8s-status k8s-down helm-lint
 
 help: ## Lista os comandos
@@ -45,6 +45,9 @@ test-integration: ## Testes Go contra Postgres real (make db-test antes)
 
 test-frontend: ## Testes do frontend
 	cd $(FRONTEND) && npm test
+
+test-e2e: ## Testes E2E (Playwright) contra a stack no ar (E2E_BASE_URL, padrão http://localhost:8000)
+	cd $(FRONTEND) && npx playwright install chromium && E2E_BASE_URL=$${E2E_BASE_URL:-http://localhost:$${APP_PORT:-8000}} npm run test:e2e
 
 lint: lint-backend lint-frontend ## Todos os linters
 

@@ -1,0 +1,17 @@
+# Staging: production settings with the demo users, so the pipeline's smoke
+# test (and the team) can log in. Keep it private.
+app:
+  env: production
+  replicas: 2
+  seedDemoUsers: true
+  logLevel: debug
+
+ingress:
+  enabled: true
+  className: nginx
+  host: staging.chamados.example.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  tls:
+    enabled: true
+    secretName: sys-called-staging-tls
