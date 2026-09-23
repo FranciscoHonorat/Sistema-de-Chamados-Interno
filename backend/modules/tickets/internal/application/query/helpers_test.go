@@ -1,0 +1,33 @@
+package query_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/franciscoHonorat/Sys-Called/backend/modules/tickets/internal/adapters/out/cache"
+	"github.com/franciscoHonorat/Sys-Called/backend/modules/tickets/internal/application/command"
+	"github.com/franciscoHonorat/Sys-Called/backend/modules/tickets/internal/application/port/out/outtest"
+)
+
+func newTestCache() *cache.InMemoryTicketCache {
+	return cache.NewInMemoryTicketCache()
+}
+
+func openTestTicket(t *testing.T, store *outtest.EventStore) string {
+	t.Helper()
+
+	output, err := command.NewOpenTicketUseCase(store, newTestCache(), outtest.Agents()).Execute(context.Background(), command.OpenTicketInput{
+		Actor:       testUser,
+		Title:       "Valid Title",
+		Description: "Valid Description",
+	})
+	assert.NoError(t, err)
+
+	return output.TicketID
+}
+
+var testUser = outtest.Actor("user-1", "user")
+
+var testAdmin = outtest.Actor("admin-1", "admin")
