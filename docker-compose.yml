@@ -1,0 +1,103 @@
+# Local stack: one Postgres and the app (API + frontend in a single image).
+#
+#   make env && docker compose up --build        -> http://localhost:8000
+#   docker compose --profile observability up    -> also Prometheus on :9091
+
+name: sys-called
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app: &app
+  build:
+    context: .
+    args:
+      VERSION: local
+  image: sys-called:local
+  logging: *default-logging
+  read_only: true
+  cap_drop: [ALL]
+  # On by default. Hosts where it breaks every exec ("operation not permitted",
+  # seen with Docker 29 on kernel 7) set NO_NEW_PRIVILEGES=false in .env.
+  security_opt: ["no-new-privileges:${NO_NEW_PRIVILEGES:-true}"]
+  environment: &app-env
+    APP_ENV: development
+    DATABASE_URL: postgres://${POSTGRES_USER:?defina POSTGRES_USER no .env}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:?defina POSTGRES_DB no .env}?sslmode=disable
+    JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+    LOG_LEVEL: info
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    shm_size: 128mb
+
+  # Applies every module's migrations once and exits; the app only starts
+  # after it succeeds, like the init container in Kubernetes.
+  migrate:
+    <<: *app
+    command: ["migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    command: ["serve"]
+    restart: unless-stopped
+    stop_grace_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-env
+      MIGRATE_ON_START: "false"
+      SEED_DEMO_USERS: "true"
+    ports:
+      - "${APP_PORT:-8000}:8080"
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/sys-called", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [observability]
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9091:9090"
+
+volumes:
+  postgres_data:

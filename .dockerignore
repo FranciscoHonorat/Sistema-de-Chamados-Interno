@@ -1,0 +1,12 @@
+**/.git
+**/node_modules
+**/dist
+**/coverage
+**/*.md
+.github
+.env
+.env.*
+!.env.example
+docs
+infra
+bin
