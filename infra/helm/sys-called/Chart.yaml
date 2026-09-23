@@ -1,0 +1,10 @@
+apiVersion: v2
+name: sys-called
+description: Sistema de controle de chamados internos — monólito modular (Go + Vue) com Postgres
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords: [helpdesk, tickets, modular-monolith]
+home: https://github.com/FranciscoHonorat/Sys-Called
+sources:
+  - https://github.com/FranciscoHonorat/Sys-Called
