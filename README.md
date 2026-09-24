@@ -51,8 +51,6 @@ O container do app roda sem root, com sistema de arquivos só leitura, sem capab
 
 `make down` derruba a stack mantendo os dados; `docker compose down -v` apaga o volume do banco.
 
-> Vindo de uma versão anterior (com `ticket-service`, `employees-service` e Kafka)? Rode `docker compose down -v --remove-orphans` antes: o banco agora é um só, com um schema por módulo.
-
 ### Deploy em AWS EC2
 
 A aplicação também foi publicada em uma instância **Amazon EC2 Free Tier**, usando Ubuntu e Docker Compose. O deploy mantém a mesma arquitetura da stack local: um container para o monólito e um container para o PostgreSQL, com o Nginx na máquina EC2 fazendo o reverse proxy.
@@ -151,7 +149,7 @@ sudo systemctl stop k3s
 
 | Sintoma | Causa e solução |
 |---|---|
-| `migrate` sai com código 255 e o log mostra `exec /usr/local/bin/sys-called: operation not permitted` | Em alguns hosts (visto com Docker 29 no kernel 7), **qualquer** container com `no-new-privileges` falha no `exec`; dá pra confirmar com `docker run --rm --security-opt no-new-privileges:true alpine true`. A solução definitiva é atualizar Docker/containerd/runc. Enquanto isso, ponha `NO_NEW_PRIVILEGES=false` no seu `.env` (o padrão é `true`; só afeta o compose local, o chart continua com `allowPrivilegeEscalation: false`) |
+| `migrate` sai com código 255 e o log mostra `exec /usr/local/bin/sys-called: operation not permitted` | Em alguns hosts (visto com Docker 29 no kernel 7), **qualquer** container com `no-new-privileges` falha no `exec`; dá pra confirmar com `docker run --rm --security-opt no-new-privileges:true alpine true`. A solução definitiva é atualizar Docker/containerd/runc. O `make env` já detecta esse caso e grava `NO_NEW_PRIVILEGES=false` no `.env` que cria; num `.env` antigo, ponha essa linha à mão (o padrão é `true`; só afeta o compose local, o chart continua com `allowPrivilegeEscalation: false`) |
 | `bind: address already in use` na 8000, 9090 ou 5433 | Outro processo usa a porta. Troque `APP_PORT` no `.env`, ou pare o que estiver nela (`docker ps` ajuda a achar) |
 
 ### Kubernetes local (kind + Helm)
@@ -208,6 +206,14 @@ O binário tem quatro comandos: `serve` (padrão), `migrate`, `healthcheck [url]
 
 `make lint-backend` (e portanto `make lint` e `make check`) precisa do `golangci-lint` v2: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`. `make helm-lint` precisa do `helm`, e os `make k8s-*` do `kind` e do `helm`.
 
+## Escolhas tecnológicas
+
+- **Go no backend**: gera um binário estático só, que sobe em milissegundos e roda numa imagem distroless sem shell. O compilador também impede um módulo de importar o `internal/` de outro, o que mantém as fronteiras entre os módulos sem depender só de disciplina.
+- **Vue 3 + TypeScript no frontend**: é o mesmo framework do dia a dia da Codificar, com tipagem para os contratos da API.
+- **Frontend servido pelo próprio backend**: o build do Vite fica dentro da imagem do Go e é servido na mesma origem da API. Um deploy, uma imagem, sem CORS e com o cookie de sessão `SameSite=Strict` funcionando sem configuração extra. É a resposta que dei à dica de reduzir o atrito entre frontend e backend: pra quem mantém, é um projeto só, que sobe com um comando.
+- **Tailwind CSS 4**: o framework CSS moderno pedido no enunciado, sem escrever CSS do zero.
+- **PostgreSQL**: um banco só, com um schema por módulo.
+
 ## Arquitetura: monólito modular
 
 ```
@@ -224,7 +230,7 @@ navegador ──HTTP──▶ sys-called (1 processo, 1 imagem)
                     └─ Postgres: schema "employees" · schema "tickets"
 ```
 
-A primeira versão eram dois serviços (`employees-service` e `ticket-service`), cada um com seu banco, conversando por Kafka, mais um nginx na frente. Pro tamanho do domínio, isso cobrava caro: quatro containers de infraestrutura, um broker pra operar, JWKS por HTTP entre os serviços e deploys coordenados. Transformei em um monólito modular mantendo o que a separação tinha de bom — fronteiras claras e comunicação assíncrona — e descartando o custo operacional. A decisão está registrada em [`docs/adr/0001-monolito-modular.md`](docs/adr/0001-monolito-modular.md).
+Escolhi um monólito modular porque ele entrega o que importa numa arquitetura de serviços — fronteiras claras entre domínios e comunicação assíncrona — sem o custo operacional que microsserviços cobrariam pro tamanho deste domínio: broker de mensagens pra operar, rede e autenticação entre serviços e deploys coordenados. Pra uma equipe pequena, é um projeto só, que sobe com um comando. A decisão está registrada em [`docs/adr/0001-monolito-modular.md`](docs/adr/0001-monolito-modular.md).
 
 ### Módulos e fronteiras
 
@@ -232,7 +238,7 @@ Cada módulo é um pacote em `backend/modules/<nome>` com:
 
 - **`module.go`** — a fachada: `New(...)` monta o módulo, `RegisterRoutes` pendura a API HTTP, `Migrations()` entrega o SQL embutido e `Schema` diz qual schema o módulo possui.
 - **`contracts/`** (só no `employees`, que é consumido) — a *linguagem publicada* do módulo: os eventos de integração (`EmployeeRegistered`, `EmployeeSignedUp`, `PasswordResetRequested`) e a porta `TokenVerifier`. Só depende da biblioteca padrão.
-- **`internal/`** — domínio, casos de uso e adaptadores, com a mesma arquitetura hexagonal de antes (`domain/`, `application/`, `adapters/in`, `adapters/out`).
+- **`internal/`** — domínio, casos de uso e adaptadores, em arquitetura hexagonal (`domain/`, `application/`, `adapters/in`, `adapters/out`).
 
 As regras de dependência são garantidas em três níveis:
 
@@ -248,7 +254,7 @@ Um teste de contrato (`modules/employees/contracts_test.go`) garante que os even
 - **Assíncrona, por eventos com outbox**: o `employees` grava o funcionário e o evento na tabela `outbox_events` na **mesma transação**. Um relay publica os eventos pendentes no barramento em processo (`internal/platform/eventbus`), e o `tickets` assina `EmployeeRegistered` (mantém sua própria lista de atendentes) e os pedidos de conta (notificações para os administradores). A entrega é *at-least-once*: se um assinante falha, o evento continua pendente e é reenviado — os assinantes são idempotentes (cada mensagem leva o ID do evento do outbox, e a notificação de um pedido de conta usa um ID derivado dele, então uma reentrega não duplica nada). Um evento que falha não segura o resto do lote: os outros seguem, e ele volta quando o *lease* de 15s expira.
 - **Várias réplicas**: o relay reserva os eventos com `FOR UPDATE SKIP LOCKED` e um *lease* de 15 segundos (`locked_until`), então duas réplicas nunca entregam o mesmo evento ao mesmo tempo, e uma réplica que morre no meio de um lote só segura os eventos até o lease expirar.
 
-Como o contrato dos eventos é o mesmo que ia pelo Kafka (tipo + payload JSON), extrair um módulo para um serviço no futuro é trocar o `eventbus` por um broker e o `TokenVerifier` em processo por um verificador JWKS — o domínio e os casos de uso não mudam.
+Como os eventos têm um contrato próprio (tipo + payload JSON), extrair um módulo para um serviço no futuro é trocar o `eventbus` por um broker e o `TokenVerifier` em processo por um verificador JWKS — o domínio e os casos de uso não mudam.
 
 ### Plataforma compartilhada (`backend/internal/platform`)
 
@@ -266,15 +272,15 @@ A composição fica em `backend/internal/app` (monta a plataforma e os módulos,
 
 ### Por dentro de cada módulo
 
-Continua a arquitetura hexagonal da versão anterior: **Event Sourcing** no `tickets` (cada chamado é a sequência dos seus eventos, com quem executou cada ação — trilha de auditoria completa), **DDD tático** (agregados, value objects, políticas de permissão e visibilidade no próprio agregado), **CQRS leve** (`command/` e `query/`) e **TDD** em todo o código.
+Cada módulo segue a arquitetura hexagonal, com **Event Sourcing** no `tickets` (cada chamado é a sequência dos seus eventos, com quem executou cada ação — trilha de auditoria completa), **DDD tático** (agregados, value objects, políticas de permissão e visibilidade no próprio agregado), **CQRS leve** (`command/` e `query/`) e **TDD** em todo o código.
 
 ### Autenticação e autorização
 
 A autenticação fica no módulo `employees`, e o módulo `tickets` só valida os tokens, pelo contrato público que o `employees` expõe:
 
 - **Senhas** guardadas com bcrypt. Login com usuário inexistente e com senha errada respondem igual (`401 invalid credentials`) e levam o mesmo tempo — no caso do usuário inexistente comparo a senha contra um hash fictício, pra não dar pra descobrir quais usernames existem medindo o tempo de resposta.
-- **Access token JWT de 15 minutos**, assinado com **Ed25519 (EdDSA)**. A assinatura assimétrica continua útil no monólito: a chave pública é publicada no JWKS, então qualquer serviço extraído no futuro (ou um gateway) valida os tokens sem conhecer a chave privada. O token carrega `sub` (id do funcionário), `name`, `role`, `must_change_password`, `iss`, `aud` e `exp`, e o cabeçalho leva o `kid` da chave.
-- **Validação em processo**: o módulo `tickets` recebe um `contracts.TokenVerifier` do `employees` e o adapta ao seu próprio ator de domínio (camada anticorrupção em `adapters/out/employees`). O verificador exige `EdDSA` explicitamente (o que fecha o ataque clássico de "confusão de algoritmo" com HS256), além de emissor, audiência e expiração. O JWKS continua publicado em `GET /api/employees/.well-known/jwks.json`.
+- **Access token JWT de 15 minutos**, assinado com **Ed25519 (EdDSA)**. A assinatura assimétrica é útil mesmo num monólito: a chave pública é publicada no JWKS, então qualquer serviço extraído no futuro (ou um gateway) valida os tokens sem conhecer a chave privada. O token carrega `sub` (id do funcionário), `name`, `role`, `must_change_password`, `iss`, `aud` e `exp`, e o cabeçalho leva o `kid` da chave.
+- **Validação em processo**: o módulo `tickets` recebe um `contracts.TokenVerifier` do `employees` e o adapta ao seu próprio ator de domínio (camada anticorrupção em `adapters/out/employees`). O verificador exige `EdDSA` explicitamente (o que fecha o ataque clássico de "confusão de algoritmo" com HS256), além de emissor, audiência e expiração. O JWKS fica publicado em `GET /api/employees/.well-known/jwks.json`.
 - **Refresh token opaco de 7 dias**, com **rotação a cada uso** e **detecção de reuso**: cada refresh gera um token novo e revoga o anterior; se um token já revogado for apresentado de novo (sinal de que foi roubado), todas as sessões daquele funcionário são revogadas. A exceção é um token trocado por um refresh há no máximo **10 segundos**: ele ainda gera uma sessão nova, porque duas abas renovando ao mesmo tempo com o mesmo cookie não são um roubo (sem isso, a aba que perdesse a corrida apagaria o cookie da outra e o usuário cairia das duas). Logout e "revogar todas" fecham essa janela na hora. No banco fica só o hash SHA-256 do refresh token.
 - **No navegador**, o access token fica só em memória (nunca em `localStorage`, que um XSS conseguiria ler) e o refresh token fica num cookie `HttpOnly; Secure; SameSite=Strict`, restrito ao caminho `/api/employees/auth`. Quando a página é recarregada, o frontend recupera a sessão chamando o refresh; quando o access token expira no meio do uso, o cliente da API renova a sessão uma vez e repete a chamada.
 
@@ -383,15 +389,17 @@ Para ligar os deploys: crie os *environments* `staging` e `production` no GitHub
 
 ### 2.0 — Cadastro de chamados
 
-Pela interface: abrir (tela "Abrir novo chamado"), editar (botão "Editar" no detalhe), listar (lista de chamados) e visualizar (detalhe). Pela API: `POST /api/tickets/tickets`, `PUT /api/tickets/tickets/:id`, `GET /api/tickets/tickets` e `GET /api/tickets/tickets/:id`. Cada chamado tem título, descrição, prioridade (baixa/média/alta), status (aberto/em andamento/fechado), responsável e data/hora de abertura — os campos mínimos pedidos, mais quem abriu o chamado e o histórico de respostas trocadas, que achei natural pro caso de uso.
+Pela interface: abrir (tela "Abrir novo chamado"), editar (botão "Editar" no detalhe), listar (lista de chamados) e visualizar (detalhe). Pela API: `POST /api/tickets/tickets`, `PUT /api/tickets/tickets/:id`, `GET /api/tickets/tickets` e `GET /api/tickets/tickets/:id`. Cada chamado tem título, descrição, prioridade (baixa/média/alta), status (aberto/em andamento/fechado), responsável e data/hora de abertura — os campos mínimos pedidos, mais quem abriu o chamado, o histórico de respostas trocadas e o relatório de fechamento, que achei natural pro caso de uso. A prioridade é sempre preenchida: se a requisição não mandar, o chamado nasce com prioridade média.
+
+Deixei de fora o status "resolvido", que o enunciado dá só como exemplo. Pra fechar um chamado o atendente precisa escrever o que foi feito, então "resolvido" e "fechado" seriam o mesmo passo com dois nomes. Com três status, a regra do que está "em aberto" (item 4.3) fica sem ambiguidade.
 
 ### 3.0 — Responsáveis pelo atendimento
 
-Segui a sugestão do enunciado de não construir um cadastro completo: o módulo `employees` sobe com três atendentes (`ana`, `bruno`, `carla`), além de um administrador e um usuário padrão (só em desenvolvimento; em produção os usuários de demonstração ficam desligados). Funcionários são um módulo próprio, com schema próprio, porque são outro domínio. Os atendentes aparecem pelo nome no seletor "Atribuir a" do detalhe do chamado.
+Segui a sugestão do enunciado de não construir um cadastro completo: o módulo `employees` sobe com três atendentes (`ana`, `bruno`, `carla`), além de um administrador e um usuário padrão (só em desenvolvimento; em produção os usuários de demonstração ficam desligados). Funcionários são um módulo próprio, com schema próprio, porque são outro domínio. Os atendentes aparecem pelo nome no campo "Responsável" do formulário de abertura (para o administrador) e no seletor "Atribuir a" do detalhe do chamado, que o suporte e o administrador usam para trocar o responsável depois.
 
 ### 4.0 — Distribuição automática
 
-O botão "Distribuir automaticamente" (`POST /api/tickets/tickets/:id/assign/auto`) atribui o chamado ao atendente com menos chamados em aberto; a atribuição manual continua disponível. Defini "em aberto" como qualquer chamado com status diferente de fechado — ou seja, aberto e em andamento contam como carga de trabalho — porque é o que reflete trabalho pendente de verdade pra quem está atendendo.
+Ao abrir um chamado, o campo "Responsável" vem com **Automático** selecionado: o chamado já nasce atribuído ao atendente com menos chamados em aberto, e ninguém fica sem saber quem vai atender. Dá pra escolher "Definir depois" e, no caso do administrador, um atendente específico. Depois de aberto, o botão "Distribuir automaticamente" (`POST /api/tickets/tickets/:id/assign/auto`) refaz a distribuição e o seletor "Atribuir a" troca o responsável à mão. Usuários comuns só escolhem entre automático e definir depois: escolher um atendente específico é papel do suporte e do administrador, senão todo mundo pediria sempre o mesmo atendente e a distribuição deixaria de equilibrar a carga. Defini "em aberto" como qualquer chamado com status diferente de fechado — ou seja, aberto e em andamento contam como carga de trabalho — porque é o que reflete trabalho pendente de verdade pra quem está atendendo.
 
 ### 5.0 — Listagem e acompanhamento
 
@@ -429,7 +437,7 @@ Os testes de integração ficam atrás de `SYS_CALLED_TEST_DATABASE_URL`: sem el
 ## Trade-offs e o que ficou de fora
 
 - **Um processo, uma falha em comum**: um bug que derrube o processo derruba os dois módulos. É o preço do monólito; em troca, não há rede entre os módulos, nem broker, nem deploy coordenado. As réplicas e o PDB cuidam da disponibilidade.
-- **Barramento síncrono dentro do relay**: os eventos são entregues pelo relay do outbox (1 s de intervalo), não na mesma transação da requisição — a consistência entre módulos é eventual, como era com o Kafka, só que mais rápida.
+- **Barramento síncrono dentro do relay**: os eventos são entregues pelo relay do outbox (1 s de intervalo), não na mesma transação da requisição — a consistência entre módulos é eventual, com atraso de até 1 s.
 - **Um evento com assinante quebrado segura os seguintes**: o relay para no primeiro erro pra preservar a ordem dos eventos (e tenta de novo). Uma fila de mensagens mortas depois de N tentativas seria o próximo passo.
 - **Cache de chamados por instância**: com uma réplica ele fica ligado; com mais, o chart o desliga e cada leitura reidrata o chamado dos eventos. A lista, a distribuição automática e a carga dos atendentes carregam os eventos de todos os chamados que faltam no cache numa **única consulta** (`LoadMany`, com `aggregate_id = ANY(...)`), então são duas idas ao banco, não uma por chamado; o que continua proporcional ao número de chamados é o trabalho de reconstruí-los em memória. Uma projeção de leitura (tabela atualizada pelos eventos) resolveria as duas coisas e também levaria o filtro da lista para o banco.
 - **Nomes de quem não é atendente**: o módulo `tickets` só conhece por nome os atendentes (pelos eventos). Na conversa, o próprio usuário aparece pelo nome; os demais não atendentes, pelo id. Publicar os nomes de todos os funcionários como evento resolveria.
@@ -470,7 +478,7 @@ Todas as rotas exigem `Authorization: Bearer <access token>` e respeitam a tabel
 
 | Método | Rota | Descrição |
 |---|---|---|
-| `POST` | `/tickets` | Abre um chamado (`{"title", "description", "priority"}`; suporte e administrador podem mandar `assignee_id`, que precisa ser um atendente do suporte) |
+| `POST` | `/tickets` | Abre um chamado (`{"title", "description", "priority"}`, prioridade média se omitida). `"auto_assign": true` atribui ao atendente menos ocupado (qualquer perfil); suporte e administrador podem mandar `assignee_id`, que precisa ser um atendente do suporte. Mandar os dois responde `400` |
 | `GET` | `/tickets` | Lista os chamados que o usuário pode ver |
 | `GET` | `/tickets/:id` | Detalhe de um chamado, com as respostas |
 | `PUT` | `/tickets/:id` | Edita título/descrição |

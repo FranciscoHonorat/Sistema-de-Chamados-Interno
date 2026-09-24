@@ -13,6 +13,7 @@ type openTicketRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	AssigneeID  string `json:"assignee_id"`
+	AutoAssign  bool   `json:"auto_assign"`
 	Priority    string `json:"priority"`
 }
 
@@ -27,6 +28,7 @@ func (h *Handler) OpenTicket(c *gin.Context) {
 		Title:       body.Title,
 		Description: body.Description,
 		AssigneeID:  body.AssigneeID,
+		AutoAssign:  body.AutoAssign,
 		Priority:    body.Priority,
 	})
 	respondJSON(c, http.StatusCreated, output, err)

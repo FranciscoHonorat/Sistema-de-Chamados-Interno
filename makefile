@@ -73,6 +73,10 @@ env: .env ## Cria o .env com uma chave JWT nova (não sobrescreve)
 	@cp .env.example .env
 	@{ printf 'JWT_PRIVATE_KEY="'; openssl genpkey -algorithm ed25519; printf '"\n'; } > .env.jwt
 	@grep -v '^JWT_PRIVATE_KEY=' .env > .env.tmp && cat .env.tmp .env.jwt > .env && rm -f .env.tmp .env.jwt
+	@if ! docker run --rm --security-opt no-new-privileges:true postgres:16-alpine true >/dev/null 2>&1; then \
+		sed -i.bak 's/^NO_NEW_PRIVILEGES=.*/NO_NEW_PRIVILEGES=false/' .env && rm -f .env.bak; \
+		echo "this Docker host breaks no-new-privileges: NO_NEW_PRIVILEGES=false in .env"; \
+	fi
 	@echo "created .env"
 
 up: .env ## Sobe a stack (http://localhost:8000)

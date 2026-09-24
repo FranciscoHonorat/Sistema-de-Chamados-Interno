@@ -1,7 +1,7 @@
 // Package eventbus is the in-process message bus the modules use to talk to
 // each other without importing each other's internals. Messages carry the event
-// type and a JSON payload, the same contract they had on Kafka, so a module can
-// be extracted into its own service later by swapping the bus for a broker.
+// type and a JSON payload, a transport-independent contract, so a module can be
+// extracted into its own service later by swapping the bus for a broker.
 package eventbus
 
 import (

@@ -18,6 +18,7 @@ type OpenTicketInput struct {
 	Title       string
 	Description string
 	AssigneeID  string
+	AutoAssign  bool
 	Priority    string
 }
 
@@ -48,33 +49,23 @@ func (uc *OpenTicketUseCase) Execute(ctx context.Context, input OpenTicketInput)
 		return OpenTicketOutput{}, err
 	}
 
-	var assigneeID *valueobjects.AssigneeID
-	if input.AssigneeID != "" {
-		if !ticket.CanManage(nil, input.Actor) {
-			return OpenTicketOutput{}, domainErr.ErrForbidden
-		}
-		a, err := valueobjects.NewAssigneeID(input.AssigneeID)
-		if err != nil {
-			return OpenTicketOutput{}, err
-		}
-		if err := ensureResponsible(ctx, uc.responsibles, input.AssigneeID); err != nil {
-			return OpenTicketOutput{}, err
-		}
-		assigneeID = &a
+	assigneeID, err := uc.chooseAssignee(ctx, input)
+	if err != nil {
+		return OpenTicketOutput{}, err
 	}
 
-	var priority *valueobjects.Priority
-	if input.Priority != "" {
-		p, err := valueobjects.NewPriority(input.Priority)
-		if err != nil {
-			return OpenTicketOutput{}, err
-		}
-		priority = &p
+	rawPriority := input.Priority
+	if rawPriority == "" {
+		rawPriority = string(valueobjects.TicketPriorityMedium)
+	}
+	priority, err := valueobjects.NewPriority(rawPriority)
+	if err != nil {
+		return OpenTicketOutput{}, err
 	}
 
 	id := valueobjects.NewID(uuid.Nil)
 
-	t, err := ticket.NewTicket(id, title, description, valueobjects.TicketStatusOpen, assigneeID, priority, input.Actor.ID())
+	t, err := ticket.NewTicket(id, title, description, valueobjects.TicketStatusOpen, assigneeID, &priority, input.Actor.ID())
 	if err != nil {
 		return OpenTicketOutput{}, err
 	}
@@ -84,4 +75,27 @@ func (uc *OpenTicketUseCase) Execute(ctx context.Context, input OpenTicketInput)
 	}
 
 	return OpenTicketOutput{TicketID: t.GetID().String()}, nil
+}
+
+func (uc *OpenTicketUseCase) chooseAssignee(ctx context.Context, input OpenTicketInput) (*valueobjects.AssigneeID, error) {
+	switch {
+	case input.AutoAssign && input.AssigneeID != "":
+		return nil, domainErr.ErrInvalidAssignee
+	case input.AutoAssign:
+		return pickLeastBusyResponsible(ctx, uc.EventSourcedUseCase, uc.responsibles)
+	case input.AssigneeID == "":
+		return nil, nil
+	}
+
+	if !ticket.CanManage(nil, input.Actor) {
+		return nil, domainErr.ErrForbidden
+	}
+	assigneeID, err := valueobjects.NewAssigneeID(input.AssigneeID)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureResponsible(ctx, uc.responsibles, input.AssigneeID); err != nil {
+		return nil, err
+	}
+	return &assigneeID, nil
 }
