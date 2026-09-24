@@ -20,12 +20,15 @@ export async function loggedInPage(browser: Browser, username: string): Promise<
   return page
 }
 
-export async function openTicket(page: Page, title: string, description: string): Promise<string> {
+export async function openTicket(page: Page, title: string, description: string, assignee?: string): Promise<string> {
   await page.goto('/chamados')
   await page.getByRole('button', { name: 'Abrir novo chamado' }).click()
   const dialog = page.getByRole('dialog', { name: 'Abrir novo chamado' })
   await dialog.getByLabel('Título').fill(title)
   await dialog.getByLabel('Descrição').fill(description)
+  if (assignee) {
+    await dialog.getByLabel('Responsável').selectOption({ label: assignee })
+  }
   await dialog.getByRole('button', { name: 'Abrir chamado' }).click()
   await expect(dialog).toBeHidden()
   await page.getByRole('link', { name: title }).click()

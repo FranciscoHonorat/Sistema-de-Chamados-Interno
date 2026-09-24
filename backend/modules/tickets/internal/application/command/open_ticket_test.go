@@ -12,6 +12,7 @@ import (
 	"github.com/franciscoHonorat/Sys-Called/backend/modules/tickets/internal/domain/ticket"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenTicketUseCase(t *testing.T) {
@@ -93,7 +94,7 @@ func TestOpenTicketUseCase(t *testing.T) {
 		assert.Empty(t, ids)
 	})
 
-	t.Run("should open a new ticket without an assignee or priority", func(t *testing.T) {
+	t.Run("should open a ticket without an assignee and with medium priority by default", func(t *testing.T) {
 		store := outtest.NewEventStore()
 		uc := command.NewOpenTicketUseCase(store, newTestCache(), outtest.Agents())
 
@@ -102,9 +103,52 @@ func TestOpenTicketUseCase(t *testing.T) {
 			Title:       "Valid Title",
 			Description: "Valid Description",
 		})
+		require.NoError(t, err)
 
-		assert.NoError(t, err)
-		assert.NotEmpty(t, output.TicketID)
+		tk := loadOpenedTicket(t, store, output.TicketID)
+		assert.Nil(t, tk.GetAssigneeID())
+		assert.Equal(t, "Medium", tk.GetPriority().GetPriority())
+	})
+
+	t.Run("should let a regular user open a ticket assigned to the least busy responsible", func(t *testing.T) {
+		store := outtest.NewEventStore()
+		cache := newTestCache()
+		responsibles := &outtest.ResponsibleDirectory{Responsibles: []string{"agent-1", "agent-2"}}
+		uc := command.NewOpenTicketUseCase(store, cache, responsibles)
+
+		first, err := uc.Execute(context.Background(), command.OpenTicketInput{
+			Actor: testUser, Title: "First", Description: "Valid Description", AutoAssign: true,
+		})
+		require.NoError(t, err)
+		second, err := uc.Execute(context.Background(), command.OpenTicketInput{
+			Actor: testUser, Title: "Second", Description: "Valid Description", AutoAssign: true,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, "agent-1", loadOpenedTicket(t, store, first.TicketID).GetAssigneeID().GetAssigneeID())
+		assert.Equal(t, "agent-2", loadOpenedTicket(t, store, second.TicketID).GetAssigneeID().GetAssigneeID())
+	})
+
+	t.Run("should refuse automatic assignment when there are no responsibles", func(t *testing.T) {
+		store := outtest.NewEventStore()
+		uc := command.NewOpenTicketUseCase(store, newTestCache(), &outtest.ResponsibleDirectory{})
+
+		_, err := uc.Execute(context.Background(), command.OpenTicketInput{
+			Actor: testUser, Title: "Valid Title", Description: "Valid Description", AutoAssign: true,
+		})
+
+		assert.ErrorIs(t, err, domainErr.ErrNoResponsiblesAvailable)
+	})
+
+	t.Run("should refuse a manual assignee together with automatic assignment", func(t *testing.T) {
+		store := outtest.NewEventStore()
+		uc := command.NewOpenTicketUseCase(store, newTestCache(), outtest.Agents())
+
+		_, err := uc.Execute(context.Background(), command.OpenTicketInput{
+			Actor: testAdmin, Title: "Valid Title", Description: "Valid Description", AssigneeID: "agent-1", AutoAssign: true,
+		})
+
+		assert.ErrorIs(t, err, domainErr.ErrInvalidAssignee)
 	})
 
 	t.Run("should return an error for an invalid title", func(t *testing.T) {
@@ -133,4 +177,13 @@ func TestOpenTicketUseCase(t *testing.T) {
 
 		assert.ErrorIs(t, err, domainErr.ErrInvalidPriority)
 	})
+}
+
+func loadOpenedTicket(t *testing.T, store *outtest.EventStore, ticketID string) *ticket.Ticket {
+	t.Helper()
+	history, err := store.Load(context.Background(), uuid.MustParse(ticketID))
+	require.NoError(t, err)
+	tk, err := ticket.LoadFromHistory(history)
+	require.NoError(t, err)
+	return tk
 }
