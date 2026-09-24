@@ -121,7 +121,7 @@ describe('HomeView', () => {
       await userEvent.type(within(dialog).getByLabelText('Descrição'), 'Não imprime')
       await userEvent.click(within(dialog).getByRole('button', { name: 'Abrir chamado' }))
 
-      expect(api.open).toHaveBeenCalledWith({ title: 'Impressora', description: 'Não imprime', priority: 'Medium' })
+      expect(api.open).toHaveBeenCalledWith({ title: 'Impressora', description: 'Não imprime', priority: 'Medium', auto_assign: true })
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
       expect(screen.getByRole('status')).toHaveTextContent('Chamado aberto')
       expect(screen.getByRole('link', { name: 'Ver chamado' })).toHaveAttribute('href', '/chamados/t-9')

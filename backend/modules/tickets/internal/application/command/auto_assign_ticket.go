@@ -35,33 +35,39 @@ func NewAutoAssignTicketUseCase(store out.EventStore, cache out.TicketCache, res
 func (uc *AutoAssignTicketUseCase) Execute(ctx context.Context, input AutoAssignTicketInput) (AutoAssignTicketOutput, error) {
 	var chosenID string
 	err := uc.UpdateTicket(ctx, input.Actor, input.TicketID, ticket.CanManage, func(t *ticket.Ticket) error {
-		candidates, err := uc.responsibles.List(ctx)
+		assigneeID, err := pickLeastBusyResponsible(ctx, uc.EventSourcedUseCase, uc.responsibles)
 		if err != nil {
 			return err
 		}
-		if len(candidates) == 0 {
-			return domainErr.ErrNoResponsiblesAvailable
-		}
-
-		allTickets, err := uc.LoadAllTickets(ctx)
-		if err != nil {
-			return err
-		}
-
-		chosenID = leastBusyResponsible(candidates, countOpenTicketsByAssignee(allTickets))
-
-		assigneeID, err := valueobjects.NewAssigneeID(chosenID)
-		if err != nil {
-			return err
-		}
-
-		return t.AssignTo(&assigneeID)
+		chosenID = assigneeID.GetAssigneeID()
+		return t.AssignTo(assigneeID)
 	})
 	if err != nil {
 		return AutoAssignTicketOutput{}, err
 	}
 
 	return AutoAssignTicketOutput{AssigneeID: chosenID}, nil
+}
+
+func pickLeastBusyResponsible(ctx context.Context, tickets application.EventSourcedUseCase, responsibles out.ResponsibleDirectory) (*valueobjects.AssigneeID, error) {
+	candidates, err := responsibles.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, domainErr.ErrNoResponsiblesAvailable
+	}
+
+	allTickets, err := tickets.LoadAllTickets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	assigneeID, err := valueobjects.NewAssigneeID(leastBusyResponsible(candidates, countOpenTicketsByAssignee(allTickets)))
+	if err != nil {
+		return nil, err
+	}
+	return &assigneeID, nil
 }
 
 func countOpenTicketsByAssignee(tickets []*ticket.Ticket) map[string]int {

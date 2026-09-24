@@ -57,6 +57,8 @@ export interface NewTicket {
   title: string
   description: string
   priority?: string
+  assignee_id?: string
+  auto_assign?: boolean
 }
 
 export interface TicketsApi {

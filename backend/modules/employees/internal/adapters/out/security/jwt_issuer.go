@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	TokenIssuer   = "employees-service"
+	TokenIssuer   = "codeticket-employees"
 	TokenAudience = "sys-called"
 )
 

@@ -33,7 +33,7 @@ func parse(token string, key ed25519.PublicKey) (*testClaims, error) {
 	claims := &testClaims{}
 	_, err := jwt.ParseWithClaims(token, claims, func(*jwt.Token) (any, error) { return key, nil },
 		jwt.WithValidMethods([]string{"EdDSA"}),
-		jwt.WithIssuer("employees-service"),
+		jwt.WithIssuer("codeticket-employees"),
 		jwt.WithAudience("sys-called"),
 	)
 	return claims, err

@@ -55,10 +55,17 @@ test('the opening form asks for a title and a description', async ({ page }) => 
   await expect(dialog.getByText('Informe a descrição')).toBeVisible()
 })
 
+test('a ticket opened with automatic assignment already has a responsible', async ({ page }) => {
+  await login(page, 'usuario')
+  await openTicket(page, unique('Monitor E2E'), 'O monitor pisca e apaga.')
+
+  await expect(detail(page, 'Responsável')).not.toContainText('—')
+})
+
 test('a support agent can hand a ticket to the least busy colleague', async ({ browser }) => {
   const title = unique('VPN E2E')
   const requester = await loggedInPage(browser, 'usuario')
-  const url = await openTicket(requester, title, 'O cliente da VPN recusa minhas credenciais.')
+  const url = await openTicket(requester, title, 'O cliente da VPN recusa minhas credenciais.', 'Definir depois')
 
   const agent = await loggedInPage(browser, 'bruno')
   await agent.goto(url)
