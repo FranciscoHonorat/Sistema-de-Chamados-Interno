@@ -24,11 +24,6 @@ O que uma arquitetura de serviços teria de bom fica garantido dentro do monóli
 - **Comunicação assíncrona**: o `employees` grava os eventos numa tabela de outbox na mesma transação. Um relay publica esses eventos num barramento em processo, e o `tickets` assina os que precisa.
 - **Contrato de eventos próprio**: tipo + payload JSON, independente do meio de transporte.
 
-## Alternativas consideradas
-
-- **Microsserviços** (um serviço por domínio, com broker): isolamento de falhas e deploy independente, ao custo operacional descrito no contexto.
-- **Monólito sem módulos**: o mais simples de começar, mas as fronteiras entre funcionários e chamados se perderiam com o tempo.
-
 ## Consequências
 
 - Um container do app e um do Postgres bastam pra rodar tudo; não há broker nem rede entre os módulos.
