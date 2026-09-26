@@ -7,7 +7,7 @@ import { defineConfig } from 'vitest/config'
 const backend = process.env.BACKEND_URL ?? 'http://localhost:8080'
 
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [vue({ features: { vapor: !process.env.VITEST } }), tailwindcss()],
   server: {
     proxy: {
       '/api': { target: backend, changeOrigin: true },

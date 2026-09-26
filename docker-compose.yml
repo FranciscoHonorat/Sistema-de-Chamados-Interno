@@ -87,7 +87,7 @@ services:
           memory: 256M
 
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: prom/prometheus:v3.14.0
     profiles: [observability]
     restart: unless-stopped
     logging: *default-logging
