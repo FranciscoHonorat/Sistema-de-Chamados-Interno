@@ -1,6 +1,6 @@
 module github.com/franciscoHonorat/Sys-Called/backend
 
-go 1.26.6
+go 1.26.4
 
 require (
 	github.com/gin-gonic/gin v1.12.0
@@ -42,7 +42,7 @@ require (
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.1 // indirect
+	github.com/quic-go/quic-go v0.59.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
