@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, vaporInteropPlugin } from 'vue'
 import { createWebHistory } from 'vue-router'
 
 import App from './App.vue'
@@ -17,6 +17,7 @@ const authService = createHttpAuthService()
 await restoreSession(authService, session)
 
 createApp(App)
+  .use(vaporInteropPlugin)
   .use(createAppRouter(session, createWebHistory()))
   .provide(sessionKey, session)
   .provide(authServiceKey, authService)

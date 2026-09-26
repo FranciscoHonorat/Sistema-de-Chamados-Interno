@@ -43,7 +43,7 @@ jobs:
       - name: golangci-lint (lint + gofmt/goimports)
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.5
+          version: v2.14
           working-directory: backend
 
       - name: Unit, architecture and module-boundary tests
@@ -231,7 +231,7 @@ jobs:
         run: docker run --rm "$IMAGE" version
 
       - name: Trivy report
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}
           format: sarif
@@ -245,7 +245,7 @@ jobs:
           category: trivy
 
       - name: Trivy gate
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}
           format: table

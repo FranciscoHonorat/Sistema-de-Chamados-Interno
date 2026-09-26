@@ -1,10 +1,3 @@
-// Package employees is the module that owns employees, their accounts and
-// sessions. It is the identity provider of the monolith: it issues the access
-// tokens and offers the other modules a contracts.TokenVerifier to check them.
-//
-// Everything but this file and the contracts package lives under internal/, so
-// the Go compiler itself keeps the other modules away from its domain,
-// use cases and tables.
 package employees
 
 import (

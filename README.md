@@ -214,6 +214,8 @@ O binário tem quatro comandos: `serve` (padrão), `migrate`, `healthcheck [url]
 - **Tailwind CSS 4**: o framework CSS moderno pedido no enunciado, sem escrever CSS do zero.
 - **PostgreSQL**: um banco só, com um schema por módulo.
 
+Cada técnica e tecnologia do projeto tem um registro de decisão (ADR) com contexto, alternativas consideradas e consequências: veja o [índice em `docs/adr`](docs/adr/README.md).
+
 ## Arquitetura: monólito modular
 
 ```
