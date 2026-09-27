@@ -130,8 +130,6 @@ O retorno esperado é `HTTP/1.1 200 OK`.
 
 No Security Group da EC2 foram liberadas as portas `80` (HTTP) e `443` (HTTPS). A porta `8000` não precisa ser liberada externamente, pois a aplicação fica disponível somente em `127.0.0.1:8000`.
 
-A instância utilizada durante a documentação ficou acessível pelo endereço público:
-
 
 O ambiente também teve o **K3s** instalado para avaliar uma implantação Kubernetes com Helm. Como a aplicação foi mantida em Docker Compose nesta implantação, o serviço do K3s foi posteriormente desabilitado para evitar consumo desnecessário de memória na instância Free Tier:
 
