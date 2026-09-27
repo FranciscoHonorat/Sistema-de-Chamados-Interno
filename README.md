@@ -132,11 +132,6 @@ No Security Group da EC2 foram liberadas as portas `80` (HTTP) e `443` (HTTPS). 
 
 A instância utilizada durante a documentação ficou acessível pelo endereço público:
 
-```text
-http://3.148.209.194
-```
-
-> O endereço IPv4 público de uma EC2 pode mudar quando a instância é parada e iniciada novamente. Para um endereço permanente, utilize um Elastic IP.
 
 O ambiente também teve o **K3s** instalado para avaliar uma implantação Kubernetes com Helm. Como a aplicação foi mantida em Docker Compose nesta implantação, o serviço do K3s foi posteriormente desabilitado para evitar consumo desnecessário de memória na instância Free Tier:
 
