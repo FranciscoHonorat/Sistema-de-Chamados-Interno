@@ -4,7 +4,7 @@
 # frontend. Both build stages run on the build machine's platform and the Go
 # stage cross-compiles, so multi-arch builds (amd64 + arm64) need no emulation.
 
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.26.4
 ARG NODE_VERSION=24
 
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS frontend
@@ -35,7 +35,7 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 LABEL org.opencontainers.image.title="codeticket" \
       org.opencontainers.image.description="Sistema de controle de chamados internos (monólito modular Go + Vue)" \
-      org.opencontainers.image.source="https://github.com/FranciscoHonorat/Sys-Called" \
+      org.opencontainers.image.source="https://github.com/FranciscoHonorat/Sistema-de-Chamados-Interno" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}"
 

@@ -1,9 +1,9 @@
 # Default values are production-minded: no demo users, JSON logs, a network
-# policy and hardened pods. infra/helm/sys-called/values-dev.yaml turns the
+# policy and hardened pods. infra/helm/Sistema-de-Chamados-Interno/values-dev.yaml turns the
 # demo users back on for the local kind cluster.
 
 image:
-  repository: ghcr.io/franciscohonorat/sys-called
+  repository: ghcr.io/franciscohonorat/Sistema-de-Chamados-Interno
   # Defaults to the chart's appVersion.
   tag: ""
   # sha256:... — when set, deploys exactly this image whatever the tag.
