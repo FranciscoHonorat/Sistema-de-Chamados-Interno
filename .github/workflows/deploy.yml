@@ -41,9 +41,9 @@ jobs:
       RELEASE: sys-called
       NAMESPACE: ${{ vars.KUBE_NAMESPACE || format('sys-called-{0}', inputs.environment) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - uses: sigstore/cosign-installer@v3
 
       - name: Verify the image signature before deploying it
